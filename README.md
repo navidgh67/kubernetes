@@ -195,6 +195,392 @@ Controller → API Server → Create/update resources
 - **kubelet** = Local site manager executing orders
 - **Container Runtime** = Workers doing the actual work
 
+#### What is containerd?
+
+**containerd is a high-level container runtime that manages the complete container lifecycle.**
+
+#### containerd's Role in Kubernetes:
+
+**🔧 High-Level Container Runtime:**
+- **Industry-standard** container runtime (CNCF graduated project)
+- **Sits between kubelet and low-level runtime** (like runc)
+- **Manages container lifecycle** - create, start, stop, delete
+- **Handles container images** - pull, store, manage
+
+#### Container Runtime Stack:
+
+```
+🎮 kubelet (Kubernetes node agent)
+    ↓ (CRI - Container Runtime Interface)
+🏗️ containerd (high-level runtime)
+    ↓ (OCI - Open Container Initiative)
+⚙️ runc (low-level runtime)
+    ↓
+📦 Container Process
+```
+
+#### How containerd Works:
+
+**📋 Complete Workflow:**
+```
+1. kubelet: "Start a Pod with nginx container"
+    ↓
+2. containerd: "I'll handle the container lifecycle"
+   - Pulls nginx image if needed
+   - Prepares container configuration
+   - Calls runc to create container
+    ↓
+3. runc: "I'll create the actual container"
+   - Sets up namespaces (PID, network, mount, etc.)
+   - Configures cgroups (resource limits)
+   - Starts the nginx process
+   - Exits after container is running
+    ↓
+4. containerd-shim: "I'll maintain the connection"
+   - Keeps connection between containerd and container
+   - Handles container lifecycle events
+   - Manages container logs and stdio
+```
+
+#### containerd Architecture Components:
+
+**🎮 kubelet:**
+- **What**: Kubernetes node agent
+- **Job**: Manages Pods and communicates with API server
+- **Communication**: Uses CRI (Container Runtime Interface) to talk to containerd
+
+**🏗️ containerd:**
+- **What**: High-level container runtime
+- **Job**: Image management, container lifecycle, networking setup
+- **Communication**: Uses OCI (Open Container Initiative) to call runc
+
+**⚙️ runc:**
+- **What**: Low-level container runtime
+- **Job**: Actually creates and starts containers (namespaces, cgroups)
+- **Behavior**: Exits after container is created
+
+**🔗 containerd-shim:**
+- **What**: Bridge process between containerd and container
+- **Job**: Maintains connection after runc exits
+- **Benefits**: containerd can restart without affecting running containers
+
+#### Visual Process Flow:
+
+```
+📋 Kubernetes schedules Pod to worker node
+    ↓
+🎮 kubelet receives Pod spec
+    ↓ (CRI API call)
+🏗️ containerd processes request
+    ├── Pulls container image
+    ├── Prepares container config
+    └── Calls runc
+         ↓
+    ⚙️ runc creates container
+    ├── Sets up namespaces
+    ├── Configures cgroups  
+    ├── Starts application process
+    └── Exits (job done)
+         ↓
+    🔗 containerd-shim takes over
+    ├── Maintains container connection
+    ├── Handles container events
+    └── Manages logs/stdio
+```
+
+#### Why This Architecture?
+
+**🔄 Separation of Concerns:**
+- **kubelet**: Kubernetes-specific logic
+- **containerd**: Container management
+- **runc**: Low-level container creation
+- **shim**: Process management
+
+**🛡️ Reliability:**
+- **containerd restarts** don't affect running containers
+- **runc exits** after container creation (no long-running process)
+- **Shim maintains** container connection independently
+
+**🔧 Modularity:**
+- **Different runtimes** can be plugged in (runc, kata, gvisor)
+- **Standard interfaces** (CRI, OCI) enable compatibility
+- **Component upgrades** without full system restarts
+
+#### containerd vs Other Runtimes:
+
+| Runtime | Level | Purpose | Used By |
+|---------|-------|---------|---------|
+| **containerd** | High-level | Container lifecycle, images | Kubernetes, Docker |
+| **CRI-O** | High-level | Kubernetes-optimized runtime | OpenShift, Kubernetes |
+| **runc** | Low-level | Container creation | containerd, CRI-O |
+| **kata-containers** | Low-level | VM-based containers | containerd (security) |
+| **gVisor (runsc)** | Low-level | Sandboxed containers | containerd (security) |
+
+#### Real-World Example:
+
+**Creating nginx Pod:**
+```yaml
+# 1. You apply this Pod
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-pod
+spec:
+  containers:
+  - name: nginx
+    image: nginx:1.20
+```
+
+**What happens internally:**
+```bash
+# 2. kubelet → containerd (via CRI)
+kubelet: "Create container with nginx:1.20 image"
+
+# 3. containerd actions
+containerd: 
+  - "Pulling nginx:1.20 image..."
+  - "Preparing container configuration..."
+  - "Calling runc to create container..."
+
+# 4. runc creates container
+runc:
+  - "Setting up PID namespace..."
+  - "Setting up network namespace..."
+  - "Starting nginx process..."
+  - "Container created, my job is done (exit)"
+
+# 5. containerd-shim maintains connection
+shim:
+  - "Monitoring nginx container..."
+  - "Handling container logs..."
+  - "Ready for container lifecycle events..."
+```
+
+#### Interview Insight:
+
+**"containerd is a high-level container runtime that sits between kubelet and low-level runtimes like runc. It manages the complete container lifecycle including image management, while runc handles the actual container creation with namespaces and cgroups. After runc creates the container and exits, a containerd-shim process maintains the connection between containerd and the running container, allowing containerd to restart without affecting running containers."**
+
+**🔑 Key Points:**
+- **High-level runtime** - manages container lifecycle
+- **Works with runc** - delegates actual container creation
+- **Shim process** - maintains container connection after runc exits
+- **Industry standard** - used by Kubernetes and Docker
+- **Modular design** - supports different low-level runtimes
+
+#### containerd's Modular Architecture - Supporting Multiple Runtimes
+
+**🔧 Key Insight: Everything below containerd is hidden from Kubernetes**
+
+This modular design allows containerd to support different runtime backends without Kubernetes knowing the difference.
+
+#### Multi-Runtime Node Architecture:
+
+```
+🎮 Kubernetes (kubelet)
+    ↓ (CRI Interface)
+🏗️ containerd (Universal Runtime Manager)
+    ├── Traditional Container Path
+    │   ├── Shim → runc → Traditional Container
+    │   └── Shim → runc → Traditional Container
+    │
+    └── WASM Application Path  
+        ├── Shim → Wasmedge → WASM App (WA)
+        └── Shim → Wasmtime → WASM App (WA)
+```
+
+#### Visual Representation (Based on Your Diagram):
+
+```
+                    🎮 Kubernetes
+                         ↓
+              🏗️ containerd (Universal Manager)
+                    ↙    ↓    ↓    ↘
+            ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐
+            │  Shim   │ │  Shim   │ │  Shim   │ │  Shim   │
+            │         │ │         │ │         │ │         │
+            │   RC    │ │   RC    │ │Wasmedge │ │Wasmtime │
+            │  RUNC   │ │  RUNC   │ │         │ │         │
+            └─────────┘ └─────────┘ └─────────┘ └─────────┘
+                 ↓         ↓           ↓         ↓
+            ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐
+            │Traditional│ │Traditional│ │  WASM   │ │  WASM   │
+            │Container │ │Container │ │  App    │ │  App    │
+            │  (RC)   │ │  (RC)   │ │  (WA)   │ │  (WA)   │
+            └─────────┘ └─────────┘ └─────────┘ └─────────┘
+```
+
+#### How Runtime Selection Works:
+
+**🎯 Runtime Classes Define the Backend:**
+
+```yaml
+# Runtime class for traditional containers
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: traditional-containers
+handler: runc                    # Uses runc runtime
+
+---
+# Runtime class for WASM applications  
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: wasm-wasmtime
+handler: wasmtime-handler        # Uses Wasmtime runtime
+
+---
+# Runtime class for different WASM runtime
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: wasm-wasmedge  
+handler: wasmedge-handler        # Uses WasmEdge runtime
+```
+
+**🔄 Pods Specify Which Runtime to Use:**
+
+```yaml
+# Traditional container Pod
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-traditional
+spec:
+  runtimeClassName: traditional-containers    # Uses runc
+  containers:
+  - name: nginx
+    image: nginx:alpine
+
+---
+# WASM application Pod
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web-app-wasm
+spec:
+  runtimeClassName: wasm-wasmtime            # Uses Wasmtime
+  containers:
+  - name: web-app
+    image: my-app.wasm
+
+---
+# Different WASM runtime Pod  
+apiVersion: v1
+kind: Pod
+metadata:
+  name: api-wasm
+spec:
+  runtimeClassName: wasm-wasmedge            # Uses WasmEdge
+  containers:
+  - name: api
+    image: api-service.wasm
+```
+
+#### What Kubernetes Sees vs Reality:
+
+**🎮 Kubernetes Perspective:**
+```bash
+kubectl get pods
+# NAME               READY   STATUS    RESTARTS
+# nginx-traditional  1/1     Running   0
+# web-app-wasm      1/1     Running   0  
+# api-wasm          1/1     Running   0
+
+# Kubernetes treats all Pods identically!
+```
+
+**🏗️ containerd Reality:**
+```
+nginx-traditional → containerd → runc shim → runc → Traditional Container
+web-app-wasm     → containerd → WASM shim → Wasmtime → WASM App
+api-wasm         → containerd → WASM shim → WasmEdge → WASM App
+```
+
+#### Benefits of This Architecture:
+
+**🔄 Transparent Runtime Selection:**
+- **Kubernetes unaware** of runtime differences
+- **Same kubectl commands** work for all Pod types
+- **Same networking/storage** regardless of runtime
+- **Mixed workloads** on same cluster
+
+**🛠️ Runtime Flexibility:**
+- **Choose best runtime** for each workload
+- **Traditional containers** for full applications
+- **WASM** for lightweight, fast-starting functions
+- **Security runtimes** (kata, gVisor) for sensitive workloads
+
+**🔧 Operational Simplicity:**
+- **Single cluster** manages diverse workloads
+- **Unified management** through Kubernetes APIs
+- **No special tooling** needed for different runtimes
+
+#### Real-World Mixed Workload Example:
+
+```yaml
+# E-commerce application with mixed runtimes
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ecommerce
+
+---
+# Frontend - Traditional container (needs full OS features)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: ecommerce
+spec:
+  template:
+    spec:
+      runtimeClassName: traditional-containers
+      containers:
+      - name: react-app
+        image: node:16-alpine
+
+---
+# Product API - WASM (ultra-fast startup for scaling)
+apiVersion: apps/v1  
+kind: Deployment
+metadata:
+  name: product-api
+  namespace: ecommerce
+spec:
+  template:
+    spec:
+      runtimeClassName: wasm-wasmtime
+      containers:
+      - name: api
+        image: product-api.wasm
+
+---
+# Payment Service - Secure runtime (sensitive workload)
+apiVersion: apps/v1
+kind: Deployment  
+metadata:
+  name: payment-service
+  namespace: ecommerce
+spec:
+  template:
+    spec:
+      runtimeClassName: kata-containers    # VM-based security
+      containers:
+      - name: payment
+        image: payment-service:secure
+```
+
+#### Interview Insight:
+
+**"containerd's modular architecture abstracts runtime details from Kubernetes. Everything below containerd (runc, WASM runtimes, security runtimes) is hidden from Kubernetes, which only sees Pods. This allows a single cluster to run traditional containers, WASM applications, and secure VM-based containers side by side, all managed through the same Kubernetes APIs. Runtime selection is controlled through RuntimeClass resources that specify which backend containerd should use for each Pod."**
+
+**🔑 Key Architectural Benefits:**
+- **Runtime abstraction** - Kubernetes doesn't need to know runtime details
+- **Mixed workloads** - Traditional and WASM apps on same cluster
+- **Unified management** - Same APIs and tools for all runtime types
+- **Flexible deployment** - Choose optimal runtime per workload
+
 **Why kubelet is critical:**
 - **No kubelet = no Pods** can run on that node
 - **kubelet failure = node becomes unusable**
@@ -203,6 +589,27 @@ Controller → API Server → Create/update resources
 #### What are WASM Apps?
 
 **WASM (WebAssembly)** is a new way to run applications alongside traditional containers.
+
+#### WASM Technical Architecture
+
+**🔧 Binary Instruction Set Architecture (ISA):**
+- **WASM is like ARM, x86, MIPS, RISC-V** - a compilation target for programming languages
+- **Source code compiles to WASM binaries** that run on any system with a WASM runtime
+- **Universal compatibility** - same binary works everywhere
+
+**🔒 Security Model - Deny-by-Default:**
+- **Secure sandbox execution** - application is distrusted by default
+- **Everything denied initially** - access must be explicitly allowed
+- **Opposite of containers** - containers start with everything wide open
+
+**🌐 WASI (WebAssembly System Interface):**
+- **Allows sandboxed WASM apps** to securely access external services
+- **Provides controlled access to:**
+  - Key-value stores
+  - Networks
+  - Host environment
+  - File systems
+- **WASI Preview 2** in development - major advancement for cloud-native WASM
 
 ##### WASM vs Containers - Simple Explanation:
 
@@ -4248,6 +4655,10 @@ spec:
 **🔑 Key Point: LoadBalancer Services cost money - use them sparingly and prefer Ingress for multiple applications!**
 
 #### Ingress - Smart Traffic Routing (Layer 7)
+
+**What is Ingress?**
+
+The primary function of an Ingress resource in Kubernetes is to expose services running inside the cluster to external clients by providing HTTP and HTTPS routing rules. Ingress allows routing of external requests to internal services based on hostnames and paths and optionally uses SSL/TLS for secure connections.
 
 **Ingress solves the "multiple cloud load balancer" cost problem by using intelligent routing.**
 
